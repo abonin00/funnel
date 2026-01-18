@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Campaign ROI Simulator</title>
+  
+  <!-- Modern Dependencies -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    
+    body, html {
+      margin: 0;
+      padding: 0;
+      background-color: transparent;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    #root {
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    /* Funnel Shape Clip Path */
+    .funnel-trap { 
+      clip-path: polygon(0% 0%, 100% 0%, 88% 100%, 12% 100%); 
+    }
+    
+    @media (max-width: 480px) {
+      .funnel-trap { 
+        clip-path: none; 
+        border-radius: 16px; 
+        width: 100% !important; 
+        margin-bottom: 8px; 
+      }
+    }
+
+    /* Smooth Transitions */
+    .transition-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    
+    /* Hide scrollbars */
+    ::-webkit-scrollbar { display: none; }
+    * { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useMemo, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      Users, Mail, MousePointer, BookOpen, Crown, 
+      DollarSign, TrendingUp, Zap, Power, RefreshCcw, 
+      Target, GraduationCap, Wallet, Percent 
+    } from 'lucide-react';
+
+    // --- Components ---
+
+    const InlineInput = ({ value, onChange, prefix, suffix, label, className = "", isDark = false }) => {
+      const [innerValue, setInnerValue] = useState(value.toString());
+      const [isFocused, setIsFocused] = useState(false);
+
+      useEffect(() => {
+        if (!isFocused) setInnerValue(value.toString());
+      }, [value, isFocused]);
+
+      const handleChange = (e) => {
+        const newVal = e.target.value;
+        setInnerValue(newVal);
+        const parsed = parseFloat(newVal);
+        if (!isNaN(parsed)) onChange(parsed);
+        else if (newVal === '') onChange(0);
+      };
+
+      return (
+        <div className={`flex flex-col items-center group/input ${className}`}>
+          {label && (
+            <span className={`text-[8px] font-black uppercase tracking-widest mb-1 whitespace-nowrap 
+              ${isDark ? 'text-slate-400' : 'text-white opacity-50'}`}>
+              {label}
+            </span>
+          )}
+          <div className={`flex items-center rounded-lg px-1.5 py-0.5 border transition-all
+            ${isDark 
+              ? 'bg-slate-100 border-slate-200 focus-within:bg-slate-200' 
+              : 'bg-white/10 border-white/20 hover:bg-white/20 focus-within:bg-white/30'}`}>
+            {prefix && <span className={`text-[9px] font-black mr-0.5 opacity-60 ${isDark ? 'text-slate-600' : 'text-white'}`}>{prefix}</span>}
+            <input
+              type="number"
+              value={innerValue}
+              onChange={handleChange}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => { setIsFocused(false); setInnerValue(value.toString()); }}
+              className={`bg-transparent border-none p-0 text-[11px] font-black w-12 text-center focus:ring-0 
+                ${isDark ? 'text-slate-800' : 'text-white'}`}
+            />
+            {suffix && <span className={`text-[9px] font-black ml-0.5 opacity-60 ${isDark ? 'text-slate-600' : 'text-white'}`}>{suffix}</span>}
+          </div>
+        </div>
+      );
+    };
+
+    const StageToggle = ({ active, onChange }) => (
+      <button 
+        onClick={() => onChange(!active)}
+        className={`p-2 rounded-xl transition-all ${active ? 'bg-white text-slate-800 shadow-lg scale-110' : 'bg-black/20 text-white/40 hover:bg-black/30'}`}
+      >
+        <Power size={14} strokeWidth={3} />
+      </button>
+    );
+
+    const FunnelVisual = ({ state, metrics, onUpdate }) => {
+      const stages = [
+        { id: 'traffic', label: 'Ad Traffic', value: metrics.visitors, color: 'bg-blue-600', icon: <Users size={16} />, show: true, inputs: [{ label: 'Spend', prefix: '$', key: 'budget' }, { label: 'CPC', prefix: '$', key: 'cpc' }] },
+        { id: 'leads', label: 'Offer Leads', value: metrics.leads, color: 'bg-indigo-600', icon: <Mail size={16} />, rate: metrics.visitors > 0 ? Math.round((metrics.leads / metrics.visitors) * 100) : 0, show: state.hasLeads, toggle: <StageToggle active={state.hasLeads} onChange={(v) => onUpdate('hasLeads', v)} />, inputs: [{ label: 'Opt-in', suffix: '%', key: 'optInRate' }] },
+        { id: 'salespage', label: 'Sales Page', value: metrics.linkClicks, color: 'bg-violet-600', icon: <MousePointer size={16} />, rate: metrics.leads > 0 ? Math.round((metrics.linkClicks / metrics.leads) * 100) : (metrics.visitors > 0 ? Math.round((metrics.linkClicks / metrics.visitors) * 100) : 0), show: state.hasSalesPage, toggle: <StageToggle active={state.hasSalesPage} onChange={(v) => onUpdate('hasSalesPage', v)} />, inputs: [{ label: 'CTR', suffix: '%', key: 'clickThroughRate' }] },
+        { id: 'customers', label: 'Customers', value: metrics.completedOrders, color: 'bg-purple-700', icon: <BookOpen size={16} />, rate: metrics.linkClicks > 0 ? Math.round((metrics.completedOrders / metrics.linkClicks) * 100) : (metrics.leads > 0 ? Math.round((metrics.completedOrders / metrics.leads) * 100) : Math.round((metrics.completedOrders / Math.max(metrics.visitors, 1)) * 100)), show: true, inputs: [{ label: 'Conv', suffix: '%', key: 'salesConvRate' }, { label: 'Price', prefix: '$', key: 'productPrice' }] },
+        { id: 'upsell', label: 'Upsell Bundle', value: metrics.upsells, color: 'bg-amber-500', icon: <Crown size={16} />, rate: metrics.completedOrders > 0 ? Math.round((metrics.upsells / metrics.completedOrders) * 100) : 0, show: state.hasUpsell, toggle: <StageToggle active={state.hasUpsell} onChange={(v) => onUpdate('hasUpsell', v)} />, inputs: [{ label: 'Take', suffix: '%', key: 'upsellRate' }, { label: 'Price', prefix: '$', key: 'upsellPrice' }] },
+      ];
+
+      return (
+        <div className="w-full flex flex-col items-center">
+          <div className="w-full flex flex-col gap-2.5 items-center">
+            {stages.map((stage, idx) => {
+              if (!stage.show && !['leads', 'salespage', 'upsell'].includes(stage.id)) return null;
+              const isDeactivated = !stage.show;
+              return (
+                <div key={stage.id} className={`funnel-trap relative flex flex-col items-center justify-center transition-all duration-500 shadow-lg border-t border-white/10 py-6 sm:py-8 ${isDeactivated ? 'opacity-20 grayscale brightness-50 h-14' : `${stage.color} text-white`}`} style={{ width: `${100 - (idx * 8)}%`, minWidth: '65%' }}>
+                  <div className="flex items-center justify-between w-full max-w-[90%] relative z-10 px-4">
+                    <div className="w-8">{stage.toggle}</div>
+                    <div className="flex flex-col items-center flex-1 px-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl sm:text-5xl font-black tracking-tighter">{stage.value.toLocaleString()}</span>
+                        {stage.rate !== undefined && stage.show && <div className="bg-black/20 px-1.5 py-0.5 rounded-lg text-[10px] font-black border border-white/10">{stage.rate}%</div>}
+                      </div>
+                      <div className="flex items-center gap-1 mt-1 opacity-70 uppercase tracking-widest font-black text-[9px]">{stage.icon} <span>{stage.label}</span></div>
+                    </div>
+                    <div className="w-24 sm:w-28 flex flex-col gap-1.5 items-end">
+                      {stage.show && stage.inputs.map(input => (
+                        <InlineInput key={input.key} label={input.label} prefix={input.prefix} suffix={input.suffix} value={state[input.key]} onChange={(v) => onUpdate(input.key, v)} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="mt-10 w-full max-w-lg p-6 rounded-[32px] border-2 transition-all flex flex-col sm:flex-row items-center justify-between shadow-xl gap-6 bg-white ${state.hasMaximizer ? 'border-emerald-100 ring-8 ring-emerald-50' : 'border-slate-200 opacity-60'}">
+            <div className="flex items-center gap-4">
+              <StageToggle active={state.hasMaximizer} onChange={(v) => onUpdate('hasMaximizer', v)} />
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Recurring MRR</span>
+                <span className={`text-sm font-bold ${state.hasMaximizer ? 'text-slate-800' : 'text-slate-400'}`}>Continuity Maximizer</span>
+              </div>
+            </div>
+            {state.hasMaximizer && (
+              <div className="flex items-center gap-6">
+                <div className="flex gap-2">
+                  <InlineInput label="Take %" suffix="%" value={state.maximizerRate} onChange={(v) => onUpdate('maximizerRate', v)} isDark={true} />
+                  <InlineInput label="Price $" prefix="$" value={state.maximizerPrice} onChange={(v) => onUpdate('maximizerPrice', v)} isDark={true} />
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black text-emerald-600 block">${metrics.mrr.toLocaleString()}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase">MRR</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const App = () => {
+      const [state, setState] = useState({
+        funnelName: 'Campaign Alpha', budget: 5000, cpc: 2.50, hasLeads: true, optInRate: 40,
+        hasSalesPage: true, clickThroughRate: 20, salesConvRate: 5, productPrice: 997,
+        hasUpsell: true, upsellRate: 15, upsellPrice: 1997, hasMaximizer: true,
+        maximizerRate: 25, maximizerPrice: 97,
+      });
+
+      const metrics = useMemo(() => {
+        const v = state.budget / Math.max(state.cpc, 0.01);
+        const l = state.hasLeads ? v * (state.optInRate / 100) : v;
+        const c = state.hasSalesPage ? l * (state.clickThroughRate / 100) : l;
+        const o = c * (state.salesConvRate / 100);
+        const u = state.hasUpsell ? o * (state.upsellRate / 100) : 0;
+        const rev = (o * state.productPrice) + (u * state.upsellPrice);
+        const subs = state.hasMaximizer ? (o * (state.maximizerRate / 100)) : 0;
+        const mrr = subs * state.maximizerPrice;
+        const total = rev + mrr;
+        return {
+          visitors: Math.round(v), leads: Math.round(l), linkClicks: Math.round(c),
+          completedOrders: Math.round(o), upsells: Math.round(u), revenue: total,
+          profit: total - state.budget, roi: state.budget > 0 ? ((total - state.budget) / state.budget) * 100 : 0,
+          mrr: Math.round(mrr)
+        };
+      }, [state]);
+
+      const update = (k, v) => setState(s => ({ ...s, [k]: v }));
+
+      return (
+        <div className="w-full flex flex-col items-center bg-transparent py-4 sm:py-10">
+          <div className="w-full max-w-4xl bg-white shadow-2xl sm:rounded-[40px] border border-slate-100 flex flex-col overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg"><Target size={20} /></div>
+                <div className="flex flex-col">
+                  <input value={state.funnelName} onChange={e => update('funnelName', e.target.value)} className="text-lg font-black text-slate-800 bg-transparent border-none focus:ring-0 p-0" />
+                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Campaign ROI Simulator</span>
+                </div>
+              </div>
+              <button onClick={() => window.location.reload()} className="p-2 text-slate-300 hover:text-slate-600 transition-colors"><RefreshCcw size={18} /></button>
+            </div>
+
+            <div className="p-4 sm:p-12"><FunnelVisual state={state} metrics={metrics} onUpdate={update} /></div>
+
+            <div className="bg-slate-50 p-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { label: 'Gross Sales', val: `$${Math.round(metrics.revenue).toLocaleString()}`, icon: <DollarSign className="text-emerald-500" /> },
+                { label: 'Net Profit', val: `$${Math.round(metrics.profit).toLocaleString()}`, icon: <TrendingUp className={metrics.profit > 0 ? 'text-emerald-500' : 'text-rose-500'} /> },
+                { label: 'ROI', val: `${Math.round(metrics.roi)}%`, icon: <Percent className="text-blue-500" /> },
+                { label: 'MRR', val: `$${metrics.mrr.toLocaleString()}`, icon: <RefreshCcw className="text-purple-500" /> }
+              ].map((m, i) => (
+                <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-slate-50">{m.icon}</div>
+                  <div className="flex flex-col">
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{m.label}</span>
+                    <span className="text-sm font-black text-slate-800">{m.val}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-8 text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em] opacity-40">Powered by ROI Engine</p>
+        </div>
+      );
+    };
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
